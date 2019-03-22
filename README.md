@@ -1,6 +1,8 @@
 # CS1550
 University of Pittsburgh --- CS 1550
+
 Student: Tianrun Gu
+
 Instructor: Sherif Khattab
 
 Course Description
