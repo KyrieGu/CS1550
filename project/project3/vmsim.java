@@ -179,19 +179,81 @@ public class vmsim {
         if(!found){
           //find the frame with the largest referenced line
           int position = 0;
+          int max = -1;
+          boolean noEmpty = true;   //in case of all references are empty
+          LinkedList<Integer> empty = new LinkedList<Integer>();  //store frame numer if its reference is empty
           if(!ref.get(frames[position]).isEmpty()){
-            int max = ref.get(frames[position]).peek();
-            for(int i=0; i<nFrame; i++){
-              if(ref.get(frames[i]).isEmpty()){
-                position = i;
-                break;
+            max = ref.get(frames[position]).peek();
+          } else {
+            noEmpty = false;
+          }
+          for(int i=0; i<nFrame; i++){
+            if(ref.get(frames[i]).isEmpty()){
+              noEmpty = false;    //indicate we need to deal empty case
+              empty.add(i);
+              continue;
+            }
+            //if no empty case, we find the largest reference
+            if (noEmpty && (max < ref.get(frames[i]).peek())){
+              position = i;
+              max = ref.get(frames[i]).peek();
+            }
+            //if distance is a tie, we evict the clean one
+            else if(noEmpty && (max == ref.get(frames[i]).peek())){
+              //if they are not the same dirty value
+              if(pageTable.get(frames[position]).dirty != pageTable.get(frames[i]).dirty){
+                if(pageTable.get(frames[i]).dirty == false){
+                  position = i;
+                  max = ref.get(frames[i]).peek();
+                }
               }
-              else if (max < ref.get(frames[i]).peek()){
-                position = i;
-                max = ref.get(frames[i]).peek();
+              else{
+                if(frames[i] < frames[position]){
+                  position = i;
+                  max = ref.get(frames[i]).peek();
+                }
               }
             }
           }
+
+          //if we need to deal with empty case
+          if(!noEmpty){
+            int length = empty.size();    //get the empty queue size
+            if(length == 1){
+              position = empty.peek();   //ecivt the only "empty" frame
+            }
+            else{
+              LinkedList<Integer> dirtyQueue = new LinkedList<Integer>();   //store "dirty" tie
+              boolean noDirty = true;
+              boolean success = false;
+              for(int i = 0; i < length; i++){
+                if(pageTable.get(frames[empty.get(i)]).dirty == false){
+                  position = empty.get(i);
+                  noDirty = true;
+                  success = true;
+                  break;
+                }
+                else{
+                  noDirty = false;
+                  dirtyQueue.add(empty.get(i));
+                }
+              }
+
+              if(!noDirty && !success){
+                position = dirtyQueue.peek();
+                int min = frames[position];
+                for(int i = 0; i<length; i++){
+                  if(min > frames[dirtyQueue.get(i)]){
+                    position = dirtyQueue.get(i);
+                    min = frames[position];
+                  }
+                }
+              }
+
+            }
+
+          }
+
 
           //evict this frame
           if(pageTable.get(frames[position]).dirty == false){
@@ -590,32 +652,32 @@ public class vmsim {
       /*
       System.out.println("Now: ");
       for(int i=0;i<nFrame;i++){
-        if(frames[i] != -1)
-        System.out.println(Integer.toHexString(frames[i]) + " counter is: " + pageTable.get(frames[i]).counter);
-      }*/
+      if(frames[i] != -1)
+      System.out.println(Integer.toHexString(frames[i]) + " counter is: " + pageTable.get(frames[i]).counter);
+    }*/
 
-      //now we update this new PageTable entry
-      pageTable.put(address,pte);
-      memoryAcc++;
-      line = reader.readLine();
-    }
-    //close the buffer
-    reader.close();
-
-
-    //print stats
-    System.out.println("\nAlgorithm: Aging"); //print stats
-    System.out.println("Number of frames: " + nFrame);
-    System.out.println("Total memory accesses: " + memoryAcc);
-    System.out.println("Total page faults: " + pageFaults);
-    System.out.println("Total writes to disk: " + writes);
-
-    for(int i=0;i<nFrame;i++){
-      System.out.println(i + " counter is: " + pageTable.get(frames[i]).counter);
-    }
-
-
+    //now we update this new PageTable entry
+    pageTable.put(address,pte);
+    memoryAcc++;
+    line = reader.readLine();
   }
+  //close the buffer
+  reader.close();
+
+
+  //print stats
+  System.out.println("\nAlgorithm: Aging"); //print stats
+  System.out.println("Number of frames: " + nFrame);
+  System.out.println("Total memory accesses: " + memoryAcc);
+  System.out.println("Total page faults: " + pageFaults);
+  System.out.println("Total writes to disk: " + writes);
+
+  for(int i=0;i<nFrame;i++){
+    System.out.println(i + " counter is: " + pageTable.get(frames[i]).counter);
+  }
+
+
+}
 
 
 
