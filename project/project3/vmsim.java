@@ -419,7 +419,7 @@ public class vmsim {
     }
 
     String line = reader.readLine();  //current line
-    int cpu = 0;
+    int cpu = -1;
     while(line != null){
       int R = (int)Math.pow(2,8);     //"referenced bit"
       //retrive elements
@@ -485,10 +485,12 @@ public class vmsim {
         }
 
       }
+      //if it is the cycle we need to do shift, we set up the cpu cycles to the cycle after shift
       if(shift){
         cpu = (cycles + cpu + 1) % refresh;
       }
 
+      //if not, we just update the cycle to the most recent cycle
       else{
         cpu = cpu + cycles + 1;
       }
@@ -538,7 +540,7 @@ public class vmsim {
           //if the counters are the same
           else if (Integer.parseInt(min,2) == Integer.parseInt(cur,2)){
 
-            //if they are both dirty
+            //if they are both same
             if(pageTable.get(frames[i]).dirty == pageTable.get(frames[i]).dirty ){
               //Compare the virtual address and choose the smaller one
               if(frames[position] > frames[i]){
