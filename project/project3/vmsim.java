@@ -526,7 +526,8 @@ public class vmsim {
     }
 
     String line = reader.readLine();  //current line
-    int cpu = -1;
+    int cpu = -1;   //intilize the cpu cycles
+
     while(line != null){
       int R = (int)Math.pow(2,8);     //"referenced bit"
       //retrive elements
@@ -535,7 +536,6 @@ public class vmsim {
         array[i].toLowerCase();
       }
       int address = Integer.parseInt(array[1].substring(2,7),16);   //convert the address to decimal
-      //System.out.println("\nAddress is " + array[1]);
       int offset = Integer.parseInt(array[1].substring(7,10),16);   //convert offset to decimal
       int cycles = Integer.parseInt(array[2]);     //cycles since previous line
       int shifts = (cycles + cpu + 1) / refresh;      //how many shifts need to do since the previous line
@@ -543,17 +543,16 @@ public class vmsim {
       boolean found = false;
       //now we look at current entry
       PTE pte = pageTable.get(address);
-      if(pte.valid != true){
-        pte.first = true;
-        pte.counter = "10000000";
+
+
+      //check whether it is a "store" instruction
+      if(array[0].equals("s")){
+        pte.dirty = true;
       }
-
-
 
       //check the cpu cycle lapsed
       if(shifts > 0)
       {
-        //System.out.println("Shift\n");
         shift = true;
         //now we have reached the refresh rate
         //shift all the page table
@@ -563,7 +562,7 @@ public class vmsim {
               //This frame is nonempty and needed to be shift
               PTE entry = pageTable.get(frames[i]);
               String counter = entry.counter;   //ready to modify and shift
-              char[] c = counter.toCharArray();
+              char[] c = counter.toCharArray(); //make the string to a char array
               for(int j=counter.length()-1; j>0; j--){
                 c[j]=c[j-1];  //shifts all bits to right
               }
@@ -581,8 +580,6 @@ public class vmsim {
               for (char ch: c) {
                 sb.append(ch);
               }
-
-              entry.first = false;
 
               counter = sb.toString();
               entry.counter = counter;    //update the counter
@@ -603,12 +600,6 @@ public class vmsim {
       }
 
 
-
-      //check whether it is a "store" instruction
-      if(array[0].equals("s")){
-        pte.dirty = true;
-      }
-
       //if it is in memory, this time is referenced --- hit
       if(pte.valid){
         pte.referenced = true;
@@ -627,7 +618,7 @@ public class vmsim {
             //store the address to the frame
             frames[i] = address;
             found = true;
-            //System.out.println(array[1] + " page fault - no eviction");
+            pte.counter = "10000000";   //intilize the counter
             break;
           }
         }
@@ -637,6 +628,7 @@ public class vmsim {
       if(!found){
         int position = 0;
         String min = pageTable.get(frames[position]).counter;
+
         for(int i=0;i<nFrame;i++){
           String cur = pageTable.get(frames[i]).counter;
           //convert to decimal and compare two counters
@@ -647,8 +639,8 @@ public class vmsim {
           //if the counters are the same
           else if (Integer.parseInt(min,2) == Integer.parseInt(cur,2)){
 
-            //if they are both same
-            if(pageTable.get(frames[i]).dirty == pageTable.get(frames[i]).dirty ){
+            //if they have same dirty flag
+            if(pageTable.get(frames[position]).dirty == pageTable.get(frames[i]).dirty){
               //Compare the virtual address and choose the smaller one
               if(frames[position] > frames[i]){
                 position = i;
@@ -657,7 +649,7 @@ public class vmsim {
             }
 
             //check if current pointer is clean
-            else if(pageTable.get(frames[i]).dirty == false){
+            else if(!pageTable.get(frames[i]).dirty){
               //evict this frame
               position = i;
               min = cur;
@@ -679,6 +671,8 @@ public class vmsim {
           old.dirty = false;
         }
 
+        //clear the reference
+        old.referenced = false;
 
         //reset the counter
         old.counter = "00000000";
@@ -689,34 +683,29 @@ public class vmsim {
         //now we are ready to repalce the frame
         frames[position] = address;
         pte.frame = position;
+        pte.counter = "10000000";   //intilize the counter
       }
 
       //now this address is in memory
       pte.valid = true;
 
-      /*
-      System.out.println("Now: ");
-      for(int i=0;i<nFrame;i++){
-      if(frames[i] != -1)
-      System.out.println(Integer.toHexString(frames[i]) + " counter is: " + pageTable.get(frames[i]).counter);
-    }*/
+      //now we update this new PageTable entry
+      pageTable.put(address,pte);
+      memoryAcc++;
+      line = reader.readLine();
+    }
+    //close the buffer
+    reader.close();
 
-    //now we update this new PageTable entry
-    pageTable.put(address,pte);
-    memoryAcc++;
-    line = reader.readLine();
+
+    //print stats
+    System.out.println("Algorithm: AGING"); //print stats
+    System.out.println("Number of frames: " + nFrame);
+    System.out.println("Total memory accesses: " + memoryAcc);
+    System.out.println("Total page faults: " + pageFaults);
+    System.out.println("Total writes to disk: " + writes);
+
   }
-  //close the buffer
-  reader.close();
-
-
-  //print stats
-  System.out.println("Algorithm: AGING"); //print stats
-  System.out.println("Number of frames: " + nFrame);
-  System.out.println("Total memory accesses: " + memoryAcc);
-  System.out.println("Total page faults: " + pageFaults);
-  System.out.println("Total writes to disk: " + writes);
-}
 
 
 

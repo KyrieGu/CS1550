@@ -14,5 +14,8 @@ public class test {
       number = String.valueOf(chars);
       System.out.println(number);
     }
+
+    int a = 12 % 10;
+    System.out.println("a is " + a);
   }
 }
