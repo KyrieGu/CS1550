@@ -5,11 +5,57 @@ import java.io.*;
 import java.lang.*;
 
 
-
-
 public class vmsim {
 
+  private static class PTE{
 
+    boolean valid;  //set if this logical page number has a corresponding physical frame in meomry
+    int frame;      //page in physical memory
+    boolean dirty;  //set if data on the page has been modified
+    boolean referenced; //set if data on the page has been accessed
+    int virtual;    //virtual address
+    String counter;    //page counter
+    boolean first;
+
+
+    //defuat constructor
+    public PTE(){
+      this.first = false;
+      this.valid = false;
+      this.frame = -1;
+      this.dirty = false;
+      this.referenced = false;
+      this.virtual = -1;
+      this.counter = "00000000";
+    }
+
+
+    //intilize everything
+    public PTE(boolean valid, boolean dirty, boolean referenced, int frame, int virtual){
+      this.first = false;
+      this.valid = valid;
+      this.frame = frame;
+      this.dirty = dirty;
+      this.referenced = referenced;
+      this.virtual = virtual;
+      this.counter = "00000000";
+    }
+
+    public PTE(int virtual){
+      this.first = false;
+      this.virtual = virtual;
+      this.valid = false;
+      this.frame = -1;
+      this.dirty = false;
+      this.referenced = false;
+      this.counter = "00000000";
+    }
+
+
+
+
+
+  }
 
 
   public static void main (String[] args) throws Exception {
@@ -95,6 +141,10 @@ public class vmsim {
     for(int i=0; i < size; i++){
       PTE pte = new PTE(i);    //create a new default page entry
       pageTable.put(i,pte);
+    }
+
+    //Initialize the reference table
+    for(int i=0; i < size; i++){
       ref.put(i,new LinkedList<Integer>());
     }
 
@@ -137,8 +187,7 @@ public class vmsim {
       }
       int address = Integer.parseInt(array[1].substring(2,7),16);   //convert the address to decimal
       int offset = Integer.parseInt(array[1].substring(7,10),16);   //convert offset to decimal
-      //System.out.println("Address is " + address);
-      //set up a pte
+
       PTE pte = pageTable.get(address);   //get the pte from the page table
       pte.referenced = true;
 
@@ -150,7 +199,6 @@ public class vmsim {
 
       //check if it is already in the memory
       if(pte.valid == true){
-        //System.out.println(array[1] +  " hit");
         //remove the finished reference
         ref.get(address).removeFirst();
       }
@@ -170,7 +218,6 @@ public class vmsim {
             frames[i] = address;
 
             found = true;
-            //System.out.println(array[1] + " page fault - no eviction");
             break;
           }
         }
@@ -257,12 +304,10 @@ public class vmsim {
 
           //evict this frame
           if(pageTable.get(frames[position]).dirty == false){
-            //System.out.println(array[1] + " page fault - evict clean ");
-            //writes++;   //we need to store the data to disk
+
           }
 
           else{
-            //System.out.println(array[1] + " page fault - evict dirty ");
             writes++;   //we need to store the data to disk
             pageTable.get(frames[position]).dirty = false;
           }
@@ -300,7 +345,7 @@ public class vmsim {
     reader.close();
 
     //print stats
-    System.out.println("\nAlgorithm: Opt"); //print stats
+    System.out.println("Algorithm: OPT"); //print stats
     System.out.println("Number of frames: " + nFrame);
     System.out.println("Total memory accesses: " + memoryAcc);
     System.out.println("Total page faults: " + pageFaults);
@@ -438,7 +483,7 @@ public class vmsim {
 
 
     //print stats
-    System.out.println("\nAlgorithm: FIFO"); //print stats
+    System.out.println("Algorithm: FIFO"); //print stats
     System.out.println("Number of frames: " + nFrame);
     System.out.println("Total memory accesses: " + memoryAcc);
     System.out.println("Total page faults: " + pageFaults);
@@ -666,17 +711,11 @@ public class vmsim {
 
 
   //print stats
-  System.out.println("\nAlgorithm: Aging"); //print stats
+  System.out.println("Algorithm: AGING"); //print stats
   System.out.println("Number of frames: " + nFrame);
   System.out.println("Total memory accesses: " + memoryAcc);
   System.out.println("Total page faults: " + pageFaults);
   System.out.println("Total writes to disk: " + writes);
-
-  for(int i=0;i<nFrame;i++){
-    System.out.println(i + " counter is: " + pageTable.get(frames[i]).counter);
-  }
-
-
 }
 
 
