@@ -92,39 +92,34 @@ trap(struct trapframe *tf)
     //lab 4 starts here
     //check whether a fault is a page fault
     if(tf->trapno == T_PGFLT){
-      uint sz;
-      uint oldsz;
-      uint newsz;
-      struct proc *curproc = myproc();
+      //uint sz;
+      //uint oldsz;
+      //uint newsz;
+      //struct proc *curproc = myproc();
 
-      sz = curproc->sz;
-      oldsz = sz;
-      newsz = sz + 4096;
-      pde_t* pgdir = curproc->pgdir;
+      //sz = curproc->sz;
+      //oldsz = sz;
+      //newsz = sz + PGSIZE;
+      //pde_t* pgdir = curproc->pgdir;
 
       char *mem;
       uint a;
 
-      a = PGROUNDUP(oldsz);
-      for(; a < newsz; a += PGSIZE){
-        mem = kalloc();
-        if(mem == 0){
-          cprintf("allocuvm out of memory\n");
-          deallocuvm(pgdir, newsz, oldsz);
+      a = PGROUNDDOWN(rcr2());
 
-        }
-        memset(mem, 0, PGSIZE);
-        if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
-          cprintf("allocuvm out of memory (2)\n");
-          deallocuvm(pgdir, newsz, oldsz);
-          kfree(mem);
+      mem = kalloc();
+      /*
+      if(mem == 0){
+        cprintf("allocuvm out of memory\n");
+        deallocuvm(pgdir, newsz, oldsz);
+      }*/
+      memset(mem, 0, PGSIZE);
+      mappages(myproc()->pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U);
 
-        }
-      }
 
-      sz = newsz;
-      curproc->sz = sz;
-      switchuvm(curproc);
+
+
+      switchuvm(myproc());
       return;
     }
 
