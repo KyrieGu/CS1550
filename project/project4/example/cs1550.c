@@ -30,7 +30,13 @@ See the file COPYING.
 #define DISK_SIZE 5242880
 
 //number of block (except bitmap)
-#define BLOCK_COUNT = (DISK_SIZE / BLOCK_SIZE - ((DISK_SIZE - 1) / (8 * BLOCK_SIZE * BLOCK_SIZE) + 1))
+#define BLOCK_COUNT (DISK_SIZE / BLOCK_SIZE - ((DISK_SIZE - 1) / (8 * BLOCK_SIZE * BLOCK_SIZE) + 1))
+
+//beginning of the bitmap
+#define BITMAP_HEAD  (BLOCK_COUNT * BLOCK_SIZE)
+
+//bitmap size
+#define BITMAP_SIZE  (DISK_SIZE - (BLOCK_COUNT * BLOCK_SIZE))
 
 //How many files can there be in one directory?
 #define MAX_FILES_IN_DIR (BLOCK_SIZE - sizeof(int)) / ((MAX_FILENAME + 1) + (MAX_EXTENSION + 1) + sizeof(size_t) + sizeof(long))
@@ -92,10 +98,152 @@ typedef struct cs1550_disk_block cs1550_disk_block;
 //operation for disks --- function prototypes
 static FILE* open_disk(void);	//open the disk
 static void close_disk(FILE *f);	//close the disk
-//static int update_bitmap(FILE *f, long block_idx, char val);	//update the bitmap
+static int update_bitmap(FILE *f, long block_idx, char val);	//update the bitmap
 static cs1550_root_directory read_root(FILE *disk);	//return the first block of .disk
+static void write_root(FILE *disk, cs1550_root_directory* root);	//update the root block
 static void* get_block(FILE *f, long block_idx);		//return the whole block
+static void write_block(FILE *disk, int block_idx, void* block);		//update the block
+static int get_free_block(FILE *f);			//return the index to the free blcok
+static void* read_bitmap(FILE *disk);		//read the bitmap and return
 
+//implementations of function prototypes
+
+//open the .disk
+static FILE* open_disk(void){
+	//create a file pointer to manage the disk
+	FILE *file;
+	file  = fopen(".disk", "r+b");
+	// Check if disk file is able to be open
+	if (file == NULL) {
+		perror ("Error opening file\n");
+		return NULL;
+	}
+
+	// Check disk file size
+	if (fseek(file, 0, SEEK_END) || ftell(file) != DISK_SIZE) {
+		fclose(file);
+		fprintf(stderr, "disk file is not valid\n");
+		return NULL;
+	}
+	return file;
+}
+
+//close the .disk
+static void close_disk(FILE *f){
+	//check if whether the file is closed
+	if(fclose(f) != 0){
+		perror("close the disk failed\n");
+	}
+	return;
+}
+
+//read the root
+//Read root from disk
+static cs1550_root_directory read_root(FILE *disk){
+	fseek(disk, 0, SEEK_SET);
+	cs1550_root_directory root;
+	fread(&root, BLOCK_SIZE, 1, disk);
+	return root;
+}
+
+
+static void* get_block(FILE *file, long block_idx){
+	/*if (!(block_idx < BLOCK_COUNT)) {
+	perror("requested block %ld does not exist\n");
+	return NULL;
+}*/
+if (fseek(file, block_idx * BLOCK_SIZE, SEEK_SET)) {
+	perror("failed to seek to block\n");
+	return NULL;
+}
+void *block = malloc(BLOCK_SIZE);
+if (fread(block, BLOCK_SIZE, 1, file) != 1) {
+	perror("failed to load block\n");
+	free(block);
+	return NULL;
+}
+return block;
+}
+
+static int get_free_block(FILE *f){
+	int free_blcok_idx = -1;
+	char *bitmap = malloc(BITMAP_SIZE);
+	bitmap = (char*) read_bitmap(f);	//read the bitmap
+	//check the return bitmap
+	if(bitmap == NULL){
+		perror("Cannot read the bitmap\n");
+	}
+
+	//loop through the bitmap and see whether we have free block
+	int i;
+	int found = FALSE;
+	for(i=0; i < BITMAP_SIZE;i++){
+		if(bitmap[i] == 0){
+			//we have a free block
+			found = TRUE;
+			break;
+		}
+	}
+
+	if(!found){
+		free_blcok_idx = -1;
+		perror("no free block now\n");
+	}
+	else{
+		//ready to return the index
+		free_blcok_idx = i;
+
+	}
+	return free_blcok_idx;
+}
+
+static int update_bitmap(FILE *disk, long block_idx, char val){
+	int success = 0;
+	char *bitmap = malloc(BITMAP_SIZE);
+	bitmap = read_bitmap(disk);	//read the bitmap
+	//check the return bitmap
+	if(bitmap == NULL){
+		perror("Cannot read the bitmap\n");
+	}
+	fseek(disk, BITMAP_HEAD + block_idx, SEEK_SET);
+	fwrite(val,sizeof(char),1,disk);
+
+	return success;
+
+}
+
+static void* read_bitmap(FILE *disk){
+	void* bitmap;
+	//get to the head of the bitmap
+	fseek(disk,BITMAP_HEAD,SEEK_SET);
+	//read the whole bitmap
+	fread(bitmap,1,BITMAP_SIZE,disk);
+	if(strlen((char*)bitmap) == 0){
+		perror("read bitmap error\n");
+		return NULL;
+	}
+
+	return bitmap;
+
+}
+
+static void write_root(FILE *disk, cs1550_root_directory* root){
+	fwrite(root, BLOCK_SIZE, 1, disk);
+}
+
+static void write_block(FILE *disk, int block_idx, void* block){
+	//locate where we want to write
+	if (fseek(disk, block_idx * BLOCK_SIZE, SEEK_SET)) {
+		perror("failed to seek to block\n");
+		return;
+	}
+
+	fwrite(block,BLOCK_SIZE,1,disk);
+	return;
+}
+
+
+//real functions
 
 /*
 * Called whenever the system wants to know the file attributes, including
@@ -282,7 +430,79 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		(void) path;
 		(void) mode;
 
-		return 0;
+		int success = 0;
+
+		//read the root
+		FILE *disk = open_disk();		//ready to raed the disk blocks
+		if (!disk) return -ENXIO;		//if open the disk has error
+
+		struct cs1550_root_directory root = read_root(disk);
+
+		//search for the directory and check whether it is exists
+		char directory[MAX_FILENAME + 1];	// + 1 is for nul
+		char filename[MAX_FILENAME + 1];
+		char extension[MAX_EXTENSION + 1];
+		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+		//check the name is not too long
+		if(strlen(directory) >= MAX_FILENAME){
+			success = ENAMETOOLONG;
+			return success;
+		}
+
+		//check if the directory already exists
+		int found = FALSE;
+		int i;
+		for(i=0;i<root.nDirectories;i++){
+			struct cs1550_directory cur_dir = root.directories[i];
+			if(strcmp(cur_dir.dname,directory) == 0){
+				found = TRUE;
+				break;
+			}
+		}
+
+		if(found == TRUE){
+			fprintf(stderr, "%s exits, no need to create a new one\n", directory);
+			success = -EEXIST;
+			return success;
+		}
+		else{
+			//if not exist, we need to create a new one and update the bitmap
+			//first we need to check whether there is an available block
+			if(root.nDirectories == MAX_DIRS_IN_ROOT){
+				//the root is full
+				perror("the root is full\n");
+				success =  -ENOSPC;
+				return success;
+			}
+			else{
+				//there is a space for a block
+				int free_blcok_idx = get_free_block(disk);
+				if(free_blcok_idx == -1){
+					perror("no available free block\n");
+					success =  -ENOSPC;
+					return success;
+				}
+				struct cs1550_directory_entry *entry = get_block(disk, free_blcok_idx);		//create a new struct to store
+				entry -> nFiles = 0;		//initialize the number of files
+
+				//update the root strcut
+				struct cs1550_directory new_dir;
+				strcpy(new_dir.dname, directory);		//assign the name
+				new_dir.nStartBlock = free_blcok_idx;		//assign the start block
+				root.directories[root.nDirectories] = new_dir;	//update subdirs array
+				root.nDirectories += 1;		//update the number of subdirectory
+
+				//updathe everything
+				update_bitmap(disk,free_blcok_idx, '1');
+				write_root(disk,&root);
+				write_block(disk,free_blcok_idx,entry);
+				success = 0;
+			}
+		}
+
+		close_disk(disk);
+
+		return success;
 	}
 
 	/*
@@ -357,65 +577,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				//set size (should be same as input) and return, or error
 
 				return size;
-			}
-
-
-			//implementations of function prototypes
-
-			//open the .disk
-			static FILE* open_disk(void){
-				//create a file pointer to manage the disk
-				FILE *file;
-				file  = fopen(".disk", "r+b");
-				// Check if disk file is able to be open
-				if (file == NULL) {
-					perror ("Error opening file\n");
-					return NULL;
-				}
-
-				// Check disk file size
-				if (fseek(file, 0, SEEK_END) || ftell(file) != DISK_SIZE) {
-					fclose(file);
-					fprintf(stderr, "disk file is not valid\n");
-					return NULL;
-				}
-				return file;
-			}
-
-			//close the .disk
-			static void close_disk(FILE *f){
-				//check if whether the file is closed
-				if(fclose(f) != 0){
-					perror("close the disk failed\n");
-				}
-				return;
-			}
-
-			//read the root
-			//Read root from disk
-			static cs1550_root_directory read_root(FILE *disk){
-				fseek(disk, 0, SEEK_SET);
-				cs1550_root_directory root;
-				fread(&root, BLOCK_SIZE, 1, disk);
-				return root;
-			}
-
-			static void* get_block(FILE *file, long block_idx){
-				/*if (!(block_idx < BLOCK_COUNT)) {
-					perror("requested block %ld does not exist\n");
-					return NULL;
-				}*/
-				if (fseek(file, block_idx * BLOCK_SIZE, SEEK_SET)) {
-					perror("failed to seek to block\n");
-					return NULL;
-				}
-				void *block = malloc(BLOCK_SIZE);
-				if (fread(block, BLOCK_SIZE, 1, file) != 1) {
-					perror("failed to load block\n");
-					free(block);
-					return NULL;
-				}
-				return block;
 			}
 
 
