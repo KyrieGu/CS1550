@@ -26,17 +26,18 @@ See the file COPYING.
 #define TRUE 1
 #define FALSE 0
 
-//size of .disk
+//size of .disk (5 MB = 5*2^20 bytes)
 #define DISK_SIZE 5242880
 
 //number of block (except bitmap)
 #define BLOCK_COUNT (DISK_SIZE / BLOCK_SIZE - ((DISK_SIZE - 1) / (8 * BLOCK_SIZE * BLOCK_SIZE) + 1))
+//#define BLOCK_COUNT 2044
 
 //beginning of the bitmap
-#define BITMAP_HEAD  (BLOCK_COUNT * BLOCK_SIZE)
+#define BITMAP_HEAD  (BLOCK_COUNT * BLOCK_SIZE - 1)
 
 //bitmap size
-#define BITMAP_SIZE  (DISK_SIZE - (BLOCK_COUNT * BLOCK_SIZE))
+#define BITMAP_SIZE  (3*BLOCK_SIZE - 3)	//-3 is for storing the bitmap
 
 //How many files can there be in one directory?
 #define MAX_FILES_IN_DIR (BLOCK_SIZE - sizeof(int)) / ((MAX_FILENAME + 1) + (MAX_EXTENSION + 1) + sizeof(size_t) + sizeof(long))
@@ -94,8 +95,17 @@ struct cs1550_disk_block
 
 typedef struct cs1550_disk_block cs1550_disk_block;
 
+//bitmap strcut
+struct Bitmap
+{
+	char bits[BITMAP_SIZE];
+};
 
-//operation for disks --- function prototypes
+typedef struct Bitmap Bitmap;
+// Most recently allocated block index
+static long last_block = 0;
+
+//operation for disk --- function prototypes
 static FILE* open_disk(void);	//open the disk
 static void close_disk(FILE *f);	//close the disk
 static int update_bitmap(FILE *f, long block_idx, char val);	//update the bitmap
@@ -104,7 +114,8 @@ static void write_root(FILE *disk, cs1550_root_directory* root);	//update the ro
 static void* get_block(FILE *f, long block_idx);		//return the whole block
 static void write_block(FILE *disk, int block_idx, void* block);		//update the block
 static int get_free_block(FILE *f);			//return the index to the free blcok
-static void* read_bitmap(FILE *disk);		//read the bitmap and return
+static Bitmap read_bitmap(FILE *disk);		//read the bitmap and return
+
 
 //implementations of function prototypes
 
@@ -115,7 +126,7 @@ static FILE* open_disk(void){
 	file  = fopen(".disk", "r+b");
 	// Check if disk file is able to be open
 	if (file == NULL) {
-		perror ("Error opening file\n");
+		fprintf(stderr, "Error opening file\n");
 		return NULL;
 	}
 
@@ -132,7 +143,7 @@ static FILE* open_disk(void){
 static void close_disk(FILE *f){
 	//check if whether the file is closed
 	if(fclose(f) != 0){
-		perror("close the disk failed\n");
+		fprintf(stderr, "close the disk failed\n");
 	}
 	return;
 }
@@ -153,12 +164,12 @@ static void* get_block(FILE *file, long block_idx){
 	return NULL;
 }*/
 if (fseek(file, block_idx * BLOCK_SIZE, SEEK_SET)) {
-	perror("failed to seek to block\n");
+	fprintf(stderr, "failed to seek to block\n");
 	return NULL;
 }
 void *block = malloc(BLOCK_SIZE);
 if (fread(block, BLOCK_SIZE, 1, file) != 1) {
-	perror("failed to load block\n");
+	fprintf(stderr, "failed to load block\n");
 	free(block);
 	return NULL;
 }
@@ -167,27 +178,28 @@ return block;
 
 static int get_free_block(FILE *f){
 	int free_blcok_idx = -1;
-	char *bitmap = malloc(BITMAP_SIZE);
-	bitmap = (char*) read_bitmap(f);	//read the bitmap
-	//check the return bitmap
-	if(bitmap == NULL){
-		perror("Cannot read the bitmap\n");
-	}
+	struct Bitmap bitmap;
+
+	//char *bitmap = malloc(BITMAP_SIZE);
+	bitmap = read_bitmap(f);	//read the bitmap
+	fprintf(stderr, "finish reading bitmap!!!!\n");
 
 	//loop through the bitmap and see whether we have free block
 	int i;
 	int found = FALSE;
-	for(i=0; i < BITMAP_SIZE;i++){
-		if(bitmap[i] == 0){
+	//we loop from 1 because the first block is saved for the root
+	for(i=1; i < BITMAP_SIZE;i++){
+		if(bitmap.bits[i] == 0){
 			//we have a free block
 			found = TRUE;
+			fprintf(stderr, "the free block index is %d\n", i);
 			break;
 		}
 	}
 
 	if(!found){
 		free_blcok_idx = -1;
-		perror("no free block now\n");
+		fprintf(stderr, "no free block now\n");
 	}
 	else{
 		//ready to return the index
@@ -197,34 +209,43 @@ static int get_free_block(FILE *f){
 	return free_blcok_idx;
 }
 
+/*
+0 means the block is free
+1 means the block is used
+*/
 static int update_bitmap(FILE *disk, long block_idx, char val){
+
+	if (block_idx >= BLOCK_COUNT) {
+    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+    return -1;
+  }
+
 	int success = 0;
-	char *bitmap = malloc(BITMAP_SIZE);
+	struct Bitmap bitmap;
 	bitmap = read_bitmap(disk);	//read the bitmap
-	//check the return bitmap
-	if(bitmap == NULL){
-		perror("Cannot read the bitmap\n");
+	if(bitmap.bits[1] == 0){
+		fprintf(stderr, "very good!!\n");
 	}
-	fseek(disk, BITMAP_HEAD + block_idx, SEEK_SET);
-	fwrite(val,sizeof(char),1,disk);
+	fprintf(stderr, "ready to update the bitmap\n");
+	//strcpy(bitmap.bits[block_idx],val);
+	bitmap.bits[block_idx] = val;
+	fprintf(stderr, "fseek now\n");
+	fseek(disk, BITMAP_HEAD, SEEK_SET);
+	fprintf(stderr, "ready to write the bitmap\n");
+	fwrite(&bitmap,sizeof(char),BITMAP_SIZE,disk);
 
 	return success;
 
 }
 
-static void* read_bitmap(FILE *disk){
-	void* bitmap;
+static Bitmap read_bitmap(FILE *disk){
+	//create a bitmap
+	struct Bitmap bitmap;
 	//get to the head of the bitmap
 	fseek(disk,BITMAP_HEAD,SEEK_SET);
-	//read the whole bitmap
-	fread(bitmap,1,BITMAP_SIZE,disk);
-	if(strlen((char*)bitmap) == 0){
-		perror("read bitmap error\n");
-		return NULL;
-	}
-
+	//read the Bitmap
+	fread(&bitmap,sizeof(char),BITMAP_SIZE,disk);
 	return bitmap;
-
 }
 
 static void write_root(FILE *disk, cs1550_root_directory* root){
@@ -234,13 +255,158 @@ static void write_root(FILE *disk, cs1550_root_directory* root){
 static void write_block(FILE *disk, int block_idx, void* block){
 	//locate where we want to write
 	if (fseek(disk, block_idx * BLOCK_SIZE, SEEK_SET)) {
-		perror("failed to seek to block\n");
+		fprintf(stderr, "failed to seek to block\n");
 		return;
 	}
 
 	fwrite(block,BLOCK_SIZE,1,disk);
 	return;
 }
+
+/*
+ * Find the index of the next free block.
+ * Return -1 when all blocks are used and -2 on error.
+ */
+static long next_free_block(FILE *f)
+{
+  long i, curr_byte_loc = -1;
+  char curr_byte;
+  for (i = 0; i < BLOCK_COUNT; ++i) {
+    last_block = (last_block + 1) % BLOCK_COUNT;
+    // Ignore root directory block
+    if (!last_block) continue;
+    long byte_loc = DISK_SIZE - (last_block / 8) - 1;
+    if (byte_loc != curr_byte_loc) {
+      if (fseek(f, byte_loc, SEEK_SET) ||
+          fread(&curr_byte, 1, 1, f) != 1) return -2;
+      curr_byte_loc = byte_loc;
+    }
+    int bit_loc = last_block % 8;
+    char mask = 1 << bit_loc;
+    if (!(curr_byte & mask)) {
+      return last_block;
+    }
+  }
+  return -1;
+}
+
+/*
+ * Request a number of free blocks and return their indices.
+ * Return NULL when all blocks are used or on error.
+ */
+static long* request_free_blocks(FILE *f, size_t num)
+{
+  long *block_indices = malloc(sizeof(long) * num);
+  *block_indices = 0;
+  long saved_last_block = last_block;
+  int i;
+  for (i = 0; i < num; ++i) {
+    long block_idx = next_free_block(f);
+    if (block_idx < 0 || block_idx == *block_indices) {
+      free(block_indices);
+      last_block = saved_last_block;
+      return NULL;
+    }
+    *(block_indices + i) = block_idx;
+  }
+  return block_indices;
+}
+
+/*
+ * Set a bit in the tracking bitmap. 1 indicates that the block is being used,
+ * and 0 indicates that the block is free. Return -1 on error.
+ */
+static int set_bitmap(FILE *f, long block_idx, char val)
+{
+  if (block_idx >= BLOCK_COUNT) {
+    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+    return -1;
+  }
+  long byte_loc = DISK_SIZE - (block_idx / 8) - 1;
+  char byte;
+  int bit_loc = block_idx % 8;
+  if (fseek(f, byte_loc, SEEK_SET) ||
+      fread(&byte, 1, 1, f) != 1) return -1;
+  char mask = 1 << bit_loc;
+  if (val) {
+    byte |= mask;
+  } else {
+    byte &= (~mask);
+  }
+  if (fseek(f, byte_loc, SEEK_SET) ||
+      fwrite(&byte, 1, 1, f) != 1) return -1;
+  return 0;
+}
+
+/*
+ * Load a block at some certain block index from disk.
+ * This function does not assume the type of the block.
+ */
+static void* load_block(FILE *f, long block_idx)
+{
+  if (block_idx >= BLOCK_COUNT) {
+    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+    return NULL;
+  }
+  if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
+    fprintf(stderr, "failed to seek to block %ld\n", block_idx);
+    return NULL;
+  }
+  void *block = malloc(BLOCK_SIZE);
+  if (fread(block, BLOCK_SIZE, 1, f) != 1) {
+    fprintf(stderr, "failed to load block %ld\n", block_idx);
+    free(block);
+    return NULL;
+  }
+  return block;
+}
+
+/*
+ * Save a block at some certain block index to disk.
+ * This function does not assume the type of the block.
+ * Return -1 on error.
+ */
+static int save_block(FILE *f, long block_idx, void *block)
+{
+  if (block_idx >= BLOCK_COUNT) {
+    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+    return -1;
+  }
+  if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
+    fprintf(stderr, "failed to seek to block %ld\n", block_idx);
+    return -1;
+  }
+  if (fwrite(block, BLOCK_SIZE, 1, f) != 1) {
+    fprintf(stderr, "failed to write to block %ld\n", block_idx);
+    return -1;
+  }
+  return 0;
+}
+
+/*
+ * Load the root directory block from disk.
+ */
+static cs1550_root_directory* load_root_directory(FILE *f)
+{
+  return (cs1550_root_directory*) load_block(f, 0);
+}
+
+/*
+ * Load a subdirectory block at some certain block index from disk.
+ */
+static cs1550_directory_entry* load_subdirectory(FILE *f, long block_idx)
+{
+  return (cs1550_directory_entry*) load_block(f, block_idx);
+}
+
+/*
+ * Load a file block at some certain block index from disk.
+ */
+static cs1550_disk_block* load_file_block(FILE *f, long block_idx)
+{
+  return (cs1550_disk_block*) load_block(f, block_idx);
+}
+
 
 
 //real functions
@@ -302,6 +468,9 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 			return -ENAMETOOLONG;
 		}
 
+		//Clear the data in stbuf JUST IN CASE
+		memset(stbuf, 0, sizeof(struct stat));
+
 		//check if name is sub_directory
 		if(strcmp(directory,"") != 0){
 			//this means the directory exits
@@ -327,7 +496,7 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 			}
 
 			//if we found the directory
-			if(result){
+			if(result == TRUE){
 
 				//then we chech whether it is a file
 				if(strcmp(filename,"") != 0){
@@ -336,7 +505,7 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 					struct cs1550_directory_entry *entry = get_block(disk, dir.nStartBlock);
 
 					if(entry == NULL){
-						perror("some error occurs\n");
+						fprintf(stderr, "some error occurs\n");
 						res = -ENOENT;
 						return res;
 					}
@@ -344,7 +513,7 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 					result = FALSE;		//reset the result
 					int num_files = entry->nFiles;	  //numer of files current directory has
 					if(num_files > MAX_FILES_IN_DIR){
-						perror("too many files or error of reading\n");
+						fprintf(stderr, "too many files or error of reading\n");
 					}
 					//search for the file
 					int j;
@@ -361,7 +530,7 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 						}
 					}
 
-					if(!result){
+					if(result == FALSE){
 						res = -ENOENT;
 						return res;
 					}
@@ -386,7 +555,10 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 		else{
 			//Else return that path doesn't exist
 			res = -ENOENT;
+			return res;
 		}
+
+
 	}
 	return res;
 }
@@ -405,14 +577,94 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		(void) fi;
 
 		//This line assumes we have no subdirectories, need to change
-		if (strcmp(path, "/") != 0)
-		return -ENOENT;
+		//if (strcmp(path, "/") != 0)
+		//return -ENOENT;
 
 		//the filler function allows us to add entries to the listing
 		//read the fuse.h file for a description (in the ../include dir)
 		filler(buf, ".", NULL, 0);
 		filler(buf, "..", NULL, 0);
 
+		//Parse the path, which is in the form: root/destination/filename.extension
+		int path_length = strlen(path);
+		char path_copy[path_length];
+		strcpy(path_copy, path);
+
+		char* destination = strtok(path_copy, "/");
+		char* filename = strtok(NULL, ".");
+		char* extension = strtok(NULL, ".");
+		FILE *disk = open_disk();
+		//Each of these iff statements first checks if the string is null; if not, check the length.
+		//If the length is longer than the 8.3 file naming convention we're using, return the error ENAMETOOLONG.
+		if((destination && destination[0]) && strlen(destination) > MAX_FILENAME){
+			return -ENAMETOOLONG;
+		}
+		if((filename && filename[0]) && strlen(filename) > MAX_FILENAME){
+			return -ENAMETOOLONG;
+		}
+		if((extension && extension[0]) && strlen(extension) > MAX_EXTENSION){
+			return -ENAMETOOLONG;
+		}
+
+		//Enter the root
+		if(strcmp(path, "/") == 0){
+			int i = 0;
+
+			cs1550_root_directory root = read_root(disk);
+
+			for(i = 0; i < MAX_DIRS_IN_ROOT; i++){ //Iterate over all of the directories in the root; if their name is non-empty, print for the user using filler()
+				char* directory_name = root.directories[i].dname;
+				if(strcmp(directory_name, "") != 0){
+					filler(buf, directory_name, NULL, 0);
+				}
+			}
+
+			return 0;
+		} else{
+			int i = 0;
+			struct cs1550_directory dir; //Initialize a directory for file checking later on
+			strcpy(dir.dname, "");
+			dir.nStartBlock = -1;
+
+			cs1550_root_directory root = read_root(disk);
+
+			for(i = 0; i < MAX_DIRS_IN_ROOT; i++){ //Iterate over the directories in the root until we find the directory with a matching name with the path
+				if(strcmp(destination, root.directories[i].dname) == 0){
+					dir = root.directories[i];
+					break;
+				}
+			}
+
+			if(strcmp(dir.dname, "") == 0){ //No directory was found in the root, so return file not found error
+				return -ENOENT;
+			} else{ //The proper directory was found, so read the directory
+				FILE* disk = fopen(".disk", "rb+");
+				int location_on_disk = dir.nStartBlock*BLOCK_SIZE;
+				fseek(disk, location_on_disk, SEEK_SET);
+
+				cs1550_directory_entry directory;
+				directory.nFiles = 0;
+				memset(directory.files, 0, MAX_FILES_IN_DIR*sizeof(struct cs1550_file_directory));
+
+				fread(&directory, BLOCK_SIZE, 1, disk); //Read the directory data from memory to iterate over its files
+				fclose(disk);
+
+				int j = 0;
+				for(j = 0; j < MAX_FILES_IN_DIR; j++){ //Iterate over the non-empty filenames in this directory and print them to the user using filler()
+					struct cs1550_file_directory file_dir = directory.files[j];
+					char filename_copy[MAX_FILENAME+1];
+					strcpy(filename_copy, file_dir.fname);
+					if(strcmp(file_dir.fext, "") != 0){ //Append the file extension
+						strcat(filename_copy, ".");
+					}
+					strcat(filename_copy, file_dir.fext); //Append file extension
+					if(strcmp(file_dir.fname, "") != 0){ //If the file is not empty, add it to the filler buffer
+						filler(buf, filename_copy, NULL, 0);
+					}
+				}
+			}
+		}
+		close_disk(disk);
 		/*
 		//add the user stuff (subdirs or files)
 		//the +1 skips the leading '/' on the filenames
@@ -439,10 +691,15 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		struct cs1550_root_directory root = read_root(disk);
 
 		//search for the directory and check whether it is exists
-		char directory[MAX_FILENAME + 1];	// + 1 is for nul
-		char filename[MAX_FILENAME + 1];
-		char extension[MAX_EXTENSION + 1];
-		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+		//path will be in the format of /directory/sub_directory
+		char* directory; //The first directory in the 2-level file system
+
+		//Parse the two strings
+		int path_length = strlen(path);
+		char path_copy[path_length];
+		strcpy(path_copy, path);
+
+		directory = strtok(path_copy, "/");
 		//check the name is not too long
 		if(strlen(directory) >= MAX_FILENAME){
 			success = ENAMETOOLONG;
@@ -470,15 +727,17 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			//first we need to check whether there is an available block
 			if(root.nDirectories == MAX_DIRS_IN_ROOT){
 				//the root is full
-				perror("the root is full\n");
+				fprintf(stderr, "the root is full\n");
 				success =  -ENOSPC;
 				return success;
 			}
 			else{
+				fprintf(stderr, "purely test!!!!!!!!\n");
 				//there is a space for a block
 				int free_blcok_idx = get_free_block(disk);
+				fprintf(stderr, "I got the free block!!!!!\n");
 				if(free_blcok_idx == -1){
-					perror("no available free block\n");
+					fprintf(stderr, "no available free block\n");
 					success =  -ENOSPC;
 					return success;
 				}
@@ -491,17 +750,18 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				new_dir.nStartBlock = free_blcok_idx;		//assign the start block
 				root.directories[root.nDirectories] = new_dir;	//update subdirs array
 				root.nDirectories += 1;		//update the number of subdirectory
-
+				fprintf(stderr, "ready to update everything\n");
 				//updathe everything
 				update_bitmap(disk,free_blcok_idx, '1');
-				write_root(disk,&root);
+				fprintf(stderr, "ready to update the root\n");
+				write_block(disk,0,&root);
+				fprintf(stderr, "ready to update the directory block\n");
 				write_block(disk,free_blcok_idx,entry);
 				success = 0;
 			}
 		}
 
 		close_disk(disk);
-
 		return success;
 	}
 
