@@ -216,9 +216,9 @@ static int get_free_block(FILE *f){
 static int update_bitmap(FILE *disk, long block_idx, char val){
 
 	if (block_idx >= BLOCK_COUNT) {
-    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
-    return -1;
-  }
+		fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+		return -1;
+	}
 
 	int success = 0;
 	struct Bitmap bitmap;
@@ -264,147 +264,147 @@ static void write_block(FILE *disk, int block_idx, void* block){
 }
 
 /*
- * Find the index of the next free block.
- * Return -1 when all blocks are used and -2 on error.
- */
+* Find the index of the next free block.
+* Return -1 when all blocks are used and -2 on error.
+*/
 static long next_free_block(FILE *f)
 {
-  long i, curr_byte_loc = -1;
-  char curr_byte;
-  for (i = 0; i < BLOCK_COUNT; ++i) {
-    last_block = (last_block + 1) % BLOCK_COUNT;
-    // Ignore root directory block
-    if (!last_block) continue;
-    long byte_loc = DISK_SIZE - (last_block / 8) - 1;
-    if (byte_loc != curr_byte_loc) {
-      if (fseek(f, byte_loc, SEEK_SET) ||
-          fread(&curr_byte, 1, 1, f) != 1) return -2;
-      curr_byte_loc = byte_loc;
-    }
-    int bit_loc = last_block % 8;
-    char mask = 1 << bit_loc;
-    if (!(curr_byte & mask)) {
-      return last_block;
-    }
-  }
-  return -1;
+	long i, curr_byte_loc = -1;
+	char curr_byte;
+	for (i = 0; i < BLOCK_COUNT; ++i) {
+		last_block = (last_block + 1) % BLOCK_COUNT;
+		// Ignore root directory block
+		if (!last_block) continue;
+		long byte_loc = DISK_SIZE - (last_block / 8) - 1;
+		if (byte_loc != curr_byte_loc) {
+			if (fseek(f, byte_loc, SEEK_SET) ||
+			fread(&curr_byte, 1, 1, f) != 1) return -2;
+			curr_byte_loc = byte_loc;
+		}
+		int bit_loc = last_block % 8;
+		char mask = 1 << bit_loc;
+		if (!(curr_byte & mask)) {
+			return last_block;
+		}
+	}
+	return -1;
 }
 
 /*
- * Request a number of free blocks and return their indices.
- * Return NULL when all blocks are used or on error.
- */
+* Request a number of free blocks and return their indices.
+* Return NULL when all blocks are used or on error.
+*/
 static long* request_free_blocks(FILE *f, size_t num)
 {
-  long *block_indices = malloc(sizeof(long) * num);
-  *block_indices = 0;
-  long saved_last_block = last_block;
-  int i;
-  for (i = 0; i < num; ++i) {
-    long block_idx = next_free_block(f);
-    if (block_idx < 0 || block_idx == *block_indices) {
-      free(block_indices);
-      last_block = saved_last_block;
-      return NULL;
-    }
-    *(block_indices + i) = block_idx;
-  }
-  return block_indices;
+	long *block_indices = malloc(sizeof(long) * num);
+	*block_indices = 0;
+	long saved_last_block = last_block;
+	int i;
+	for (i = 0; i < num; ++i) {
+		long block_idx = next_free_block(f);
+		if (block_idx < 0 || block_idx == *block_indices) {
+			free(block_indices);
+			last_block = saved_last_block;
+			return NULL;
+		}
+		*(block_indices + i) = block_idx;
+	}
+	return block_indices;
 }
 
 /*
- * Set a bit in the tracking bitmap. 1 indicates that the block is being used,
- * and 0 indicates that the block is free. Return -1 on error.
- */
+* Set a bit in the tracking bitmap. 1 indicates that the block is being used,
+* and 0 indicates that the block is free. Return -1 on error.
+*/
 static int set_bitmap(FILE *f, long block_idx, char val)
 {
-  if (block_idx >= BLOCK_COUNT) {
-    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
-    return -1;
-  }
-  long byte_loc = DISK_SIZE - (block_idx / 8) - 1;
-  char byte;
-  int bit_loc = block_idx % 8;
-  if (fseek(f, byte_loc, SEEK_SET) ||
-      fread(&byte, 1, 1, f) != 1) return -1;
-  char mask = 1 << bit_loc;
-  if (val) {
-    byte |= mask;
-  } else {
-    byte &= (~mask);
-  }
-  if (fseek(f, byte_loc, SEEK_SET) ||
-      fwrite(&byte, 1, 1, f) != 1) return -1;
-  return 0;
+	if (block_idx >= BLOCK_COUNT) {
+		fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+		return -1;
+	}
+	long byte_loc = DISK_SIZE - (block_idx / 8) - 1;
+	char byte;
+	int bit_loc = block_idx % 8;
+	if (fseek(f, byte_loc, SEEK_SET) ||
+	fread(&byte, 1, 1, f) != 1) return -1;
+	char mask = 1 << bit_loc;
+	if (val) {
+		byte |= mask;
+	} else {
+		byte &= (~mask);
+	}
+	if (fseek(f, byte_loc, SEEK_SET) ||
+	fwrite(&byte, 1, 1, f) != 1) return -1;
+	return 0;
 }
 
 /*
- * Load a block at some certain block index from disk.
- * This function does not assume the type of the block.
- */
+* Load a block at some certain block index from disk.
+* This function does not assume the type of the block.
+*/
 static void* load_block(FILE *f, long block_idx)
 {
-  if (block_idx >= BLOCK_COUNT) {
-    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
-    return NULL;
-  }
-  if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
-    fprintf(stderr, "failed to seek to block %ld\n", block_idx);
-    return NULL;
-  }
-  void *block = malloc(BLOCK_SIZE);
-  if (fread(block, BLOCK_SIZE, 1, f) != 1) {
-    fprintf(stderr, "failed to load block %ld\n", block_idx);
-    free(block);
-    return NULL;
-  }
-  return block;
+	if (block_idx >= BLOCK_COUNT) {
+		fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+		return NULL;
+	}
+	if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
+		fprintf(stderr, "failed to seek to block %ld\n", block_idx);
+		return NULL;
+	}
+	void *block = malloc(BLOCK_SIZE);
+	if (fread(block, BLOCK_SIZE, 1, f) != 1) {
+		fprintf(stderr, "failed to load block %ld\n", block_idx);
+		free(block);
+		return NULL;
+	}
+	return block;
 }
 
 /*
- * Save a block at some certain block index to disk.
- * This function does not assume the type of the block.
- * Return -1 on error.
- */
+* Save a block at some certain block index to disk.
+* This function does not assume the type of the block.
+* Return -1 on error.
+*/
 static int save_block(FILE *f, long block_idx, void *block)
 {
-  if (block_idx >= BLOCK_COUNT) {
-    fprintf(stderr, "requested block %ld does not exist\n", block_idx);
-    return -1;
-  }
-  if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
-    fprintf(stderr, "failed to seek to block %ld\n", block_idx);
-    return -1;
-  }
-  if (fwrite(block, BLOCK_SIZE, 1, f) != 1) {
-    fprintf(stderr, "failed to write to block %ld\n", block_idx);
-    return -1;
-  }
-  return 0;
+	if (block_idx >= BLOCK_COUNT) {
+		fprintf(stderr, "requested block %ld does not exist\n", block_idx);
+		return -1;
+	}
+	if (fseek(f, block_idx * BLOCK_SIZE, SEEK_SET)) {
+		fprintf(stderr, "failed to seek to block %ld\n", block_idx);
+		return -1;
+	}
+	if (fwrite(block, BLOCK_SIZE, 1, f) != 1) {
+		fprintf(stderr, "failed to write to block %ld\n", block_idx);
+		return -1;
+	}
+	return 0;
 }
 
 /*
- * Load the root directory block from disk.
- */
+* Load the root directory block from disk.
+*/
 static cs1550_root_directory* load_root_directory(FILE *f)
 {
-  return (cs1550_root_directory*) load_block(f, 0);
+	return (cs1550_root_directory*) load_block(f, 0);
 }
 
 /*
- * Load a subdirectory block at some certain block index from disk.
- */
+* Load a subdirectory block at some certain block index from disk.
+*/
 static cs1550_directory_entry* load_subdirectory(FILE *f, long block_idx)
 {
-  return (cs1550_directory_entry*) load_block(f, block_idx);
+	return (cs1550_directory_entry*) load_block(f, block_idx);
 }
 
 /*
- * Load a file block at some certain block index from disk.
- */
+* Load a file block at some certain block index from disk.
+*/
 static cs1550_disk_block* load_file_block(FILE *f, long block_idx)
 {
-  return (cs1550_disk_block*) load_block(f, block_idx);
+	return (cs1550_disk_block*) load_block(f, block_idx);
 }
 
 
@@ -782,7 +782,119 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	{
 		(void) mode;
 		(void) dev;
-		return 0;
+
+		//implementation
+		int res = 0;		//initialize the result to 0
+
+		//decompose the path
+		char directory[MAX_FILENAME + 1];	// + 1 is for nul
+		char filename[MAX_FILENAME + 1];
+		char extension[MAX_EXTENSION + 1];
+
+		//initialize variables
+		memset(extension, 0, MAX_EXTENSION + 1);
+		memset(directory, 0, MAX_FILENAME + 1);
+		memset(filename, 0, MAX_FILENAME + 1);
+		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+
+		//condition check
+		//if the file name is too long
+		if(strlen(filename) == 0){
+			res = -ENAMETOOLONG;
+			fprintf(stderr, "the filename is too long\n");
+			return res;
+		}
+
+		//if the file has no extension
+		if(strlen(extension) == 0){
+			fprintf(stderr, "file %s has no extension\n", filename);
+			res =  -EPERM;
+			return res;
+		}
+
+		//if the extension is too long
+		if(strlen(extension) > MAX_EXTENSION){
+			fprintf(stderr, "the extension %s is too long \n", extension);
+		}
+
+		//if the file is trying to be created in the root directory
+		if(strlen(directory) == 0){
+			res = -EPERM;
+			fprintf(stderr, "the file is trying to be created in the root dir\n");
+			return res;
+		}
+		FILE *disk = open_disk();
+		//Now we search the file and see whether it is exists
+		//first read the root and locate the directory
+		struct cs1550_root_directory root = read_root(disk);		//get the root
+		int i,found = FALSE;
+		for(i = 0; i < root.nDirectories; i++){
+			//check whether the directory exists
+			if(strcmp(root.directories[i].dname,directory) == 0){
+				//we found the directory
+				found = TRUE;
+				break;
+			}
+		}
+
+		if(!found){
+			fprintf(stderr, "the directory %s doesn't exist\n", directory);
+			res = -ENOENT;
+			return res;
+		}
+		else{
+			//the directory exists, let's check the file
+			struct cs1550_directory_entry *entry = get_block(disk,root.directories[i].nStartBlock);
+			int dir_start = root.directories[i].nStartBlock;
+			//loop through to look for the file
+			found = FALSE;		//reset the found
+			for(i = 0; i < entry -> nFiles; i ++){
+				if(strcmp(entry->files[i].fname,filename) == 0){
+					found = TRUE;
+					break;
+				}
+			}
+			//if we found the file already exits
+			if(found){
+				fprintf(stderr, "the file %s already exits\n", filename);
+				res = -EEXIST;
+				return res;
+			}
+
+
+			//create a file structure to store the file
+			int free_blcok_idx = get_free_block(disk);
+			if(free_blcok_idx == -1 || entry->nFiles >= MAX_FILES_IN_DIR){
+				fprintf(stderr, "the directory %s is full\n", directory);
+				res = -ENOSPC;
+				return res;
+			}
+
+			struct cs1550_file_directory *file = get_block(disk,free_blcok_idx);
+			//update the file
+			file -> nStartBlock = free_blcok_idx;		//assing the index of start block
+			strcpy(file -> fname,filename);		//assign the file name
+			strcpy(file ->fext, extension);
+			//file -> fsize = sizeof(struct cs1550_file_directory);
+			file->fsize = 0;		//initialize the file size to 0
+			//update the entry
+			entry -> files[entry->nFiles] = *file;
+			entry -> nFiles ++;
+
+			//write everything back
+			//update the bitmap
+			update_bitmap(disk,free_blcok_idx,'1');
+			//update the directory
+			write_block(disk,dir_start,entry);
+			//update the file
+			write_block(disk,free_blcok_idx,file);
+
+			close_disk(disk);
+			res = 0;
+		}
+
+
+		return res;
 	}
 
 	/*
