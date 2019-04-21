@@ -107,7 +107,6 @@ typedef struct Bitmap Bitmap;
 
 //operation for disk --- function prototypes
 static FILE* open_disk(void);	//open the disk
-static FILE* open_file(char *path);		//open a file
 static void close_disk(FILE *disk);	//close the disk
 static int update_bitmap(FILE *f, long block_idx, char val);	//update the bitmap
 static cs1550_root_directory read_root(FILE *disk);	//return the first block of .disk
@@ -181,7 +180,6 @@ static long get_free_block(FILE *f){
 
 	//char *bitmap = malloc(BITMAP_SIZE);
 	bitmap = read_bitmap(f);	//read the bitmap
-	fprintf(stderr, "finish reading bitmap!!!!\n");
 
 	//loop through the bitmap and see whether we have free block
 	int i;
@@ -225,13 +223,10 @@ static int update_bitmap(FILE *disk, long block_idx, char val){
 	if(bitmap.bits[1] == 0){
 		fprintf(stderr, "very good!!\n");
 	}
-	fprintf(stderr, "ready to update the bitmap\n");
-	fprintf(stderr, "the block index is %d\n", block_idx);
 	//strcpy(bitmap.bits[block_idx],val);
 	bitmap.bits[block_idx] = val;
-	fprintf(stderr, "fseek now\n");
+
 	fseek(disk, BITMAP_HEAD, SEEK_SET);
-	fprintf(stderr, "ready to write the bitmap\n");
 	fwrite(&bitmap,sizeof(char),BITMAP_SIZE,disk);
 
 	return success;
@@ -376,7 +371,7 @@ static int cs1550_getattr(const char *path, struct stat *stbuf)
 						if(strcmp(cur_file.fname, filename) == 0){
 							stbuf->st_mode = S_IFREG | 0666;
 							stbuf->st_nlink = 1; //file links
-							stbuf->st_size = 0; //file size - make sure you replace with real size!
+							stbuf->st_size = entry -> files[j].fsize; //file size - make sure you replace with real size!
 							res = 0;
 							result = TRUE;
 							break;
@@ -914,12 +909,12 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				fprintf(stderr, "the cur is %d\n", cur);
 				long left = size;		//how many bytes need new blocks
 
-				if(size > cur && cur > 0){
+				if((int)size > (int)cur && (int)cur > 0){
 					left = size - cur;
 				}
 				//calculate how many blocks we need
 				long blocks = left / BLOCK_SIZE;
-				if(left > BLOCK_SIZE && left % BLOCK_SIZE > 0){
+				if(left > BLOCK_SIZE && (left % BLOCK_SIZE) > 0){
 					blocks++;
 				}
 				fprintf(stderr, "the size is %d\n", size);
@@ -927,16 +922,17 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				//first, we fill the current file
 
 				struct cs1550_disk_block *free_block = get_block(disk,start);
-				/*
-				if(cur < 0){
+
+
+				if((int)cur < 0){
 					fprintf(stderr, "the start block is full \n");
 				}
 				else{
-					fprintf(stderr, "got the first block %d\n", start);
+					//fprintf(stderr, "got the first block %d\n", start);
 					char *buff = malloc(cur);
-					fprintf(stderr, "for test\n");
+					//fprintf(stderr, "for test\n");
 					strncpy(buff,buf,cur);
-					fprintf(stderr, "string append\n");
+					//fprintf(stderr, "string append\n");
 					if(file.fsize == 0){
 						strcpy(free_block -> data, buff);
 					}
@@ -947,10 +943,10 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					fseek(disk,start*BLOCK_SIZE,SEEK_SET);
 					fwrite(free_block,BLOCK_SIZE,1,disk);
 					//note we don't need to update bitmap here
-					fprintf(stderr, "we have append the file\n");
-					left = left - strlen(buff);
+					//fprintf(stderr, "we have append the file\n");
+					left = left - sizeof(buff);
 				}
-				*/
+
 				//now we write
 				int k;
 				for(k = 0; k < blocks; k++){
@@ -973,15 +969,17 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					strncpy(free_block->data,buf,s);		//copy the data into the struct
 					fseek(disk,block_idx * BLOCK_SIZE, SEEK_SET);		//get to this block
 
-					fprintf(stderr, "now we write the block %d\n", block_idx);
+					//fprintf(stderr, "now we write the block %d\n", block_idx);
 					fwrite(free_block,BLOCK_SIZE,1,disk);		//write the struct
 
-					fprintf(stderr, "now we update the bitmap\n");
+					//fprintf(stderr, "now we update the bitmap\n");
 					update_bitmap(disk,block_idx,'1');
-					left = left - strlen(free_block->data);
-				}
+					left = left - sizeof(free_block->data);
+					fprintf(stderr, "the left is %d\n", left);
 
+				}
 				file.fsize += size;
+
 				entry->files[index] = file;
 				fprintf(stderr, "the file size is %d\n", file.fsize);
 
