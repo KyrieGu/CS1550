@@ -433,80 +433,85 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		filler(buf, ".", NULL, 0);
 		filler(buf, "..", NULL, 0);
 
-		//implementation
-		int res = 0;		//initialize the result to 0
+		//Parse the path, which is in the form: root/destination/filename.extension
+		int path_length = strlen(path);
+		char path_copy[path_length];
+		strcpy(path_copy, path);
 
-		//decompose the path
-		char directory[MAX_FILENAME + 1];	// + 1 is for nul
-		char filename[MAX_FILENAME + 1];
-		char extension[MAX_EXTENSION + 1];
-
-		//initialize variables
-		memset(extension, 0, MAX_EXTENSION + 1);
-		memset(directory, 0, MAX_FILENAME + 1);
-		memset(filename, 0, MAX_FILENAME + 1);
-		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+		char* destination = strtok(path_copy, "/");
+		char* filename = strtok(NULL, ".");
+		char* extension = strtok(NULL, ".");
 		FILE *disk = open_disk();
-		//condition check
-		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
-			fprintf(stderr, "the extension %s is too long \n", extension);
-			res = -ENAMETOOLONG;
-			return res;
+		//Each of these iff statements first checks if the string is null; if not, check the length.
+		//If the length is longer than the 8.3 file naming convention we're using, return the error ENAMETOOLONG.
+		if((destination && destination[0]) && strlen(destination) > MAX_FILENAME){
+			return -ENAMETOOLONG;
+		}
+		if((filename && filename[0]) && strlen(filename) > MAX_FILENAME){
+			return -ENAMETOOLONG;
+		}
+		if((extension && extension[0]) && strlen(extension) > MAX_EXTENSION){
+			return -ENAMETOOLONG;
 		}
 
-		FILE *disk = open_disk();
-		//Now we search the file and see whether it is exists
-		//first read the root and locate the directory
-		struct cs1550_root_directory root = read_root(disk);		//get the root
+		//Enter the root
+		if(strcmp(path, "/") == 0){
+			int i = 0;
 
-		//if want to read root
-		if(strlen(directory) == 0){
-			int j;
-			//loop all the directories in the root
-			for(j = 0; j < root.nDirectories; j ++){
-				struct cs1550_directory dir = root.directories[j];
-				if(strcmp(dir.dname,"") != 0){
-					filler(buf,dir.dname,NULL,0);
+			cs1550_root_directory root = read_root(disk);
+
+			for(i = 0; i < MAX_DIRS_IN_ROOT; i++){ //Iterate over all of the directories in the root; if their name is non-empty, print for the user using filler()
+				char* directory_name = root.directories[i].dname;
+				if(strcmp(directory_name, "") != 0){
+					filler(buf, directory_name, NULL, 0);
 				}
 			}
 
-			res = 0;
-			return res;
-		}
+			return 0;
+		} else{
+			int i = 0;
+			struct cs1550_directory dir; //Initialize a directory for file checking later on
+			strcpy(dir.dname, "");
+			dir.nStartBlock = -1;
 
-		int i,found = FALSE;
-		struct cs1550_directory_entry *entry;
-		for(i = 0; i < root.nDirectories; i++){
-			//check whether the directory exists
-			if(strcmp(root.directories[i].dname,directory) == 0){
-				//we found the directory
-				found = TRUE;
-				entry = get_block(disk,root.directories[i].nStartBlock);
-				break;
-			}
-		}
+			cs1550_root_directory root = read_root(disk);
 
-		if(!found){
-			res = ENOENT;
-			return res;
-		}
-
-		for(i = 0; i < entry -> nFiles; i++){
-			memset(extension, 0, MAX_EXTENSION + 1);
-			memset(filename, 0, MAX_FILENAME + 1);
-			struct cs1550_file_directory file = entry -> files[i];
-			if(strcmp(file.fname,"") != 0){
-				strcpy(filename,file.fname);
-				if(strcmp(file.fext,"") != 0){
-					strcat(filename,".");
-					strcat(filename,file.fext);
+			for(i = 0; i < MAX_DIRS_IN_ROOT; i++){ //Iterate over the directories in the root until we find the directory with a matching name with the path
+				if(strcmp(destination, root.directories[i].dname) == 0){
+					dir = root.directories[i];
+					break;
 				}
-				filler(buf,filename,NULL,0);
+			}
+
+			if(strcmp(dir.dname, "") == 0){ //No directory was found in the root, so return file not found error
+				return -ENOENT;
+			} else{ //The proper directory was found, so read the directory
+				FILE* disk = fopen(".disk", "rb+");
+				int location_on_disk = dir.nStartBlock*BLOCK_SIZE;
+				fseek(disk, location_on_disk, SEEK_SET);
+
+				cs1550_directory_entry directory;
+				directory.nFiles = 0;
+				memset(directory.files, 0, MAX_FILES_IN_DIR*sizeof(struct cs1550_file_directory));
+
+				fread(&directory, BLOCK_SIZE, 1, disk); //Read the directory data from memory to iterate over its files
+				fclose(disk);
+
+				int j = 0;
+				for(j = 0; j < MAX_FILES_IN_DIR; j++){ //Iterate over the non-empty filenames in this directory and print them to the user using filler()
+					struct cs1550_file_directory file_dir = directory.files[j];
+					char filename_copy[MAX_FILENAME+1];
+					strcpy(filename_copy, file_dir.fname);
+					if(strcmp(file_dir.fext, "") != 0){ //Append the file extension
+						strcat(filename_copy, ".");
+					}
+					strcat(filename_copy, file_dir.fext); //Append file extension
+					if(strcmp(file_dir.fname, "") != 0){ //If the file is not empty, add it to the filler buffer
+						filler(buf, filename_copy, NULL, 0);
+					}
+				}
 			}
 		}
-
-
-
 		close_disk(disk);
 		/*
 		//add the user stuff (subdirs or files)
@@ -544,7 +549,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 		directory = strtok(path_copy, "/");
 		//check the name is not too long
-		if(strlen(directory) > (MAX_FILENAME+1)){
+		if(strlen(directory) >= MAX_FILENAME){
 			success = ENAMETOOLONG;
 			return success;
 		}
@@ -659,8 +664,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		//if the extension is too long
 		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
 			fprintf(stderr, "the extension %s is too long \n", extension);
-			res = -ENAMETOOLONG;
-			return res;
 		}
 
 		//if the file is trying to be created in the root directory
