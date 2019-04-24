@@ -455,7 +455,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		memset(directory, 0, MAX_FILENAME + 1);
 		memset(filename, 0, MAX_FILENAME + 1);
 		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
-		
+
 		//condition check
 		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
 			fprintf(stderr, "the extension %s is too long \n", extension);
@@ -1117,10 +1117,9 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					fprintf(stderr, "the size of the data is %d\n", sizeof(free_block->data));
 					left = left - sizeof(free_block->data);
 					fprintf(stderr, "the left is %d\n", left);
-					file.fsize += size;
 					last = block_idx;
 				}
-
+				file.fsize += size;
 				entry->files[index] = file;
 				fprintf(stderr, "the file size is %d\n", file.fsize);
 
