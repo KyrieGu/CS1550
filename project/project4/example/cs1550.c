@@ -113,7 +113,7 @@ static cs1550_root_directory read_root(FILE *disk);	//return the first block of 
 static void* get_block(FILE *f, long block_idx);		//return the whole block
 static void write_block(FILE *disk, int block_idx, void* block);		//update the block
 static long get_free_block(FILE *f);			//return the index to the free blcok
-static Bitmap read_bitmap(FILE *disk);		//read the bitmap and return
+static void read_bitmap(FILE *disk, Bitmap *bitmap);		//read the bitmap and return
 
 
 //implementations of function prototypes
@@ -179,7 +179,7 @@ static long get_free_block(FILE *f){
 	struct Bitmap bitmap;
 
 	//char *bitmap = malloc(BITMAP_SIZE);
-	bitmap = read_bitmap(f);	//read the bitmap
+	read_bitmap(f,&bitmap);	//read the bitmap
 
 	//loop through the bitmap and see whether we have free block
 	int i;
@@ -219,7 +219,7 @@ static int update_bitmap(FILE *disk, long block_idx, char val){
 
 	int success = 0;
 	struct Bitmap bitmap;
-	bitmap = read_bitmap(disk);	//read the bitmap
+	read_bitmap(disk,&bitmap);	//read the bitmap
 	if(bitmap.bits[1] == 0){
 		fprintf(stderr, "very good!!\n");
 	}
@@ -233,7 +233,7 @@ static int update_bitmap(FILE *disk, long block_idx, char val){
 
 }
 
-static Bitmap read_bitmap(FILE *disk){
+static Bitmap read_bitmap2(FILE *disk){
 	//create a bitmap
 	struct Bitmap bitmap;
 	//get to the head of the bitmap
@@ -241,6 +241,15 @@ static Bitmap read_bitmap(FILE *disk){
 	//read the Bitmap
 	fread(&bitmap,sizeof(char),BITMAP_SIZE,disk);
 	return bitmap;
+
+}
+
+static void read_bitmap(FILE *disk, Bitmap *bitmap){
+	//get to the head of the bitmap
+	fseek(disk,BITMAP_HEAD,SEEK_SET);
+	//read the Bitmap
+	fread(bitmap,sizeof(char),BITMAP_SIZE,disk);
+	return;
 
 }
 
@@ -505,7 +514,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			}
 		}
 
-
+		res = 0;
 
 		close_disk(disk);
 		/*
@@ -513,7 +522,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		//the +1 skips the leading '/' on the filenames
 		filler(buf, newpath + 1, NULL, 0);
 		*/
-		return 0;
+		return res;
 	}
 
 	/*
