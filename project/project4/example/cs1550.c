@@ -455,7 +455,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		memset(directory, 0, MAX_FILENAME + 1);
 		memset(filename, 0, MAX_FILENAME + 1);
 		sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
-		FILE *disk = open_disk();
+		
 		//condition check
 		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
 			fprintf(stderr, "the extension %s is too long \n", extension);
