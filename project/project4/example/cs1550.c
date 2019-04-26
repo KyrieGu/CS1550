@@ -185,7 +185,7 @@ static long get_free_block(FILE *f){
 	int found = FALSE;
 	//we loop from 1 because the first block is saved for the root
 	for(i=1; i < BITMAP_SIZE;i++){
-		if(bitmap.bits[i] == '\0'){
+		if(bitmap.bits[i] == 0){
 			//we have a free block
 			found = TRUE;
 			break;
@@ -193,8 +193,7 @@ static long get_free_block(FILE *f){
 	}
 
 	if(!found){
-		free_blcok_idx = -1;
-		fprintf(stderr, "no free block now\n");
+		free_blcok_idx = -1;		//no free block
 	}
 	else{
 		//ready to return the index
@@ -217,11 +216,8 @@ static int update_bitmap(FILE *disk, long block_idx, char val){
 	int success = 0;
 	struct Bitmap bitmap;
 	read_bitmap(disk,&bitmap);	//read the bitmap
-	if(bitmap.bits[1] == 0){
-		fprintf(stderr, "very good!!\n");
-	}
-	//strcpy(bitmap.bits[block_idx],val);
-	bitmap.bits[block_idx] = val;
+
+	bitmap.bits[block_idx] = val;		//set the bitmap value
 
 	fseek(disk, BITMAP_HEAD, SEEK_SET);
 	fwrite(&bitmap,sizeof(char),BITMAP_SIZE,disk);
@@ -581,12 +577,9 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				return success;
 			}
 			else{
-				fprintf(stderr, "purely test!!!!!!!!\n");
 				//there is a space for a block
 				long free_blcok_idx = get_free_block(disk);
-				fprintf(stderr, "I got the free block!!!!!\n");
 				if(free_blcok_idx == -1){
-					fprintf(stderr, "no available free block\n");
 					success =  -ENOSPC;
 					return success;
 				}
@@ -599,14 +592,10 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				new_dir.nStartBlock = free_blcok_idx;		//assign the start block
 				root.directories[root.nDirectories] = new_dir;	//update subdirs array
 				root.nDirectories += 1;		//update the number of subdirectory
-				fprintf(stderr, "ready to update everything\n");
 				//updathe everything
-				update_bitmap(disk,free_blcok_idx, '1');
-				fprintf(stderr, "ready to update the root\n");
+				update_bitmap(disk,free_blcok_idx, 1);
 				write_block(disk,0,&root);
-				fprintf(stderr, "ready to update the directory block\n");
 				write_block(disk,free_blcok_idx,entry);
-
 				success = 0;
 			}
 		}
@@ -730,7 +719,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 			//write everything back
 			//update the bitmap
-			update_bitmap(disk,free_blcok_idx,'1');
+			update_bitmap(disk,free_blcok_idx,1);
 			//update the directory
 			write_block(disk,dir_start,entry);
 			//update the file
@@ -893,12 +882,23 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			long start_block = file.nStartBlock;
 			start_block = start_block + offset / BLOCK_SIZE;		//which block do we start
 
+			if(offset % BLOCK_SIZE > 0){
+				start_block++;
+			}
+			size_t left = size;
 			//now we read
 			int k;
 			for(k=0; k<blocks; k++){
+				size_t s = BLOCK_SIZE;
+				if(left < BLOCK_SIZE){
+					s = left;
+				}
+				char str[s];
 				start_block = start_block + k;
 				struct cs1550_disk_block *blk = get_block(disk,start_block);
-				strcat(buf,blk->data);
+				strncpy(str,blk->data,s);
+			  strcat(buf,str);
+				left = left - s;
 			}
 
 			close_disk(disk);
@@ -970,10 +970,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					return res;
 				}
 
-				if(size > MAX_DATA_IN_BLOCK){
-					fprintf(stderr, "the buf is bigger than the block size\n");
-				}
-
 				//we need to open the disk to update the file struct
 				FILE *disk = open_disk();
 				struct cs1550_root_directory root = read_root(disk);
@@ -1028,15 +1024,18 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				if(offset > file.fsize){
 					//file is not that large
 					res = -EFBIG;
-					return res;
 				}
 
 				//ready to write the file
 				long start = file.nStartBlock;		//start block index for the file
-				size_t cur = BLOCK_SIZE - file.fsize;		//how many bytes we can write in current block
+				size_t cur = 0;
+				if(file.fsize<BLOCK_SIZE){
+					cur = BLOCK_SIZE - file.fsize;		//how many bytes we can write in current block
+				}
+
 				long left = size;		//how many bytes need new blocks
 
-				if((int)size > (int)cur && (int)cur > 0){
+				if((int)size > (int)cur && (int)cur > 0 && file.fsize != 0){
 					left = size - cur;
 				}
 				//calculate how many blocks we need
@@ -1044,22 +1043,25 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				if(left > BLOCK_SIZE && (left % BLOCK_SIZE) > 0){
 					blocks++;
 				}
-				//first, we fill the current file
+				//fprintf(stderr, "we need %d blocks\n", blocks);
 
 				struct cs1550_disk_block *free_block = get_block(disk,start);
 
-
-				if((int)cur < 0){
+				//fprintf(stderr, "at fisrt, file size is %d\n", file.fsize);
+				if((int)cur <= 0){
 					fprintf(stderr, "the start block is full \n");
 				}
 				else{
+					if(left < cur){
+						cur = left;
+					}
 					//fprintf(stderr, "got the first block %d\n", start);
-					char *buff = malloc(cur);
+					char buff[cur];
 					//fprintf(stderr, "for test\n");
 					strncpy(buff,buf,cur);
 					//fprintf(stderr, "string append\n");
 					if(file.fsize == 0){
-						strcpy(free_block -> data, buff);
+						strncpy(free_block -> data, buff,cur);
 					}
 					else{
 						strcat(free_block->data,buff);		//append the current file
@@ -1071,23 +1073,35 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					//fprintf(stderr, "we have append the file\n");
 					left = left - sizeof(buff);
 					file.fsize += sizeof(buff);
+					//fprintf(stderr, "file size increase %d\n", sizeof(buff));
 				}
 
 				long last = start + file.fsize / BLOCK_SIZE;
+				if(file.fsize % BLOCK_SIZE > 0){
+					last++;
+				}
 				//now we write
 				int k;
 				for(k = 0; k < blocks; k++){
 					//everytime we write a whole block size
 					long block_idx = get_free_block(disk);
+					/*
 					if(block_idx - last > 2){
 						res = -ENOSPC;
-						return res;
+						break;
 					}
+					*/
 					//check the return block
 					if(block_idx == -1){
 						//no more space
 						res = -ENOSPC;
-						return res;
+						break;
+					}
+
+					if(file.fsize > BITMAP_HEAD){
+						//fprintf(stderr, "overhead!!! file size is %d\n", file.fsize);
+						res = -ENOSPC;
+						break;
 					}
 
 					free_block = get_block(disk,block_idx);		//get the new free block
@@ -1104,17 +1118,25 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					fwrite(free_block,BLOCK_SIZE,1,disk);		//write the struct
 
 					//fprintf(stderr, "now we update the bitmap\n");
-					update_bitmap(disk,block_idx,'1');
-					left = left - sizeof(free_block->data);
+					update_bitmap(disk,block_idx,1);
+					left = left - s;
 					last = block_idx;
+					file.fsize += s;
+					//fprintf(stderr, "file size increase %d\n", s);
+					//fprintf(stderr, "file size is %d\n", file.fsize);
 				}
-				file.fsize += size;
+				//file.fsize += size;
 				entry->files[index] = file;
 
 				//update the direcotry
 				write_block(disk,cur_dir.nStartBlock,entry);
 
 				close_disk(disk);
+				if(offset > file.fsize){
+					//file is not that large
+					res = -EFBIG;
+					return res;
+				}
 				return size;
 			}
 
