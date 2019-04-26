@@ -125,7 +125,6 @@ static FILE* open_disk(void){
 	file  = fopen("./.disk", "r+b");
 	// Check if disk file is able to be open
 	if (file == NULL) {
-		fprintf(stderr, "Error opening file\n");
 		return NULL;
 	}
 
@@ -189,7 +188,6 @@ static long get_free_block(FILE *f){
 		if(bitmap.bits[i] == '\0'){
 			//we have a free block
 			found = TRUE;
-			fprintf(stderr, "the free block index is %d\n", i);
 			break;
 		}
 	}
@@ -213,7 +211,6 @@ static long get_free_block(FILE *f){
 static int update_bitmap(FILE *disk, long block_idx, char val){
 
 	if (block_idx >= BLOCK_COUNT) {
-		fprintf(stderr, "requested block %ld does not exist\n", block_idx);
 		return -1;
 	}
 
@@ -233,6 +230,7 @@ static int update_bitmap(FILE *disk, long block_idx, char val){
 
 }
 
+/*
 static Bitmap read_bitmap2(FILE *disk){
 	//create a bitmap
 	struct Bitmap bitmap;
@@ -243,6 +241,7 @@ static Bitmap read_bitmap2(FILE *disk){
 	return bitmap;
 
 }
+*/
 
 static void read_bitmap(FILE *disk, Bitmap *bitmap){
 	//get to the head of the bitmap
@@ -458,7 +457,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 		//condition check
 		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
-			fprintf(stderr, "the extension %s is too long \n", extension);
 			res = -ENAMETOOLONG;
 			return res;
 		}
@@ -570,7 +568,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		}
 
 		if(found == TRUE){
-			fprintf(stderr, "%s exits, no need to create a new one\n", directory);
 			success = -EEXIST;
 			return success;
 		}
@@ -660,14 +657,12 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 		//if the file has no extension
 		if(strlen(extension) == 0){
-			fprintf(stderr, "file %s has no extension\n", filename);
 			res =  -EPERM;
 			return res;
 		}
 
 		//if the extension is too long
 		if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
-			fprintf(stderr, "the extension %s is too long \n", extension);
 			res = -ENAMETOOLONG;
 			return res;
 		}
@@ -693,7 +688,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		}
 
 		if(!found){
-			fprintf(stderr, "the directory %s doesn't exist\n", directory);
 			res = -ENOENT;
 			return res;
 		}
@@ -711,7 +705,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			}
 			//if we found the file already exits
 			if(found){
-				fprintf(stderr, "the file %s already exits\n", filename);
 				res = -EEXIST;
 				return res;
 			}
@@ -720,7 +713,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			//create a file structure to store the file
 			long free_blcok_idx = get_free_block(disk);
 			if(free_blcok_idx == -1 || entry->nFiles >= MAX_FILES_IN_DIR){
-				fprintf(stderr, "the directory %s is full\n", directory);
 				res = -ENOSPC;
 				return res;
 			}
@@ -789,12 +781,14 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			char filename[MAX_FILENAME + 1];
 			char extension[MAX_EXTENSION + 1];
 
+			/*
 			//if the size is not correct
 			if(size < 0){
 				fprintf(stderr, "the size is less than 0\n");
 				res = -ENOENT;
 				return res;
 			}
+			*/
 
 			//initialize variables
 			memset(extension, 0, MAX_EXTENSION + 1);
@@ -822,7 +816,8 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 			//check the length of the file path
 			if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
-				fprintf(stderr, "the extension %s is too long \n", extension);
+				res = -ENAMETOOLONG;
+				return res;
 			}
 
 			//we need to open the disk to update the file struct
@@ -851,20 +846,19 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			struct cs1550_file_directory file;
 
 			found = FALSE;
-			int index = -1;
+			//int index = -1;
 			for(i = 0; i< entry->nFiles; i++){
 				file = entry -> files[i];
 				if(strcmp(file.fname,filename) == 0){
 					//we found the file
 					found = TRUE;
-					index = i;
+					//index = i;
 					break;
 				}
 			}
 
 			if(!found){
 				//the file doesn't exist
-				fprintf(stderr, "the file %s doesn't exist\n", filename);
 				res = -ENOENT;
 				return res;
 			}
@@ -898,7 +892,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			//calculate how many blocks we need to skip
 			long start_block = file.nStartBlock;
 			start_block = start_block + offset / BLOCK_SIZE;		//which block do we start
-			long head = offset - (offset / BLOCK_SIZE) * BLOCK_SIZE;		//where do we start inside the fisrt block
 
 			//now we read
 			int k;
@@ -938,12 +931,14 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				char filename[MAX_FILENAME + 1];
 				char extension[MAX_EXTENSION + 1];
 
+				/*
 				//if the size is not correct
 				if(size < 0){
 					fprintf(stderr, "the size is less than 0\n");
 					res = -ENOENT;
 					return res;
 				}
+				*/
 
 				//initialize variables
 				memset(extension, 0, MAX_EXTENSION + 1);
@@ -971,7 +966,8 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 				//check the length of the file path
 				if(strlen(extension) > MAX_EXTENSION || strlen(filename) > MAX_FILENAME || strlen(directory) > MAX_FILENAME){
-					fprintf(stderr, "the extension %s is too long \n", extension);
+					res = -ENAMETOOLONG;
+					return res;
 				}
 
 				if(size > MAX_DATA_IN_BLOCK){
@@ -1017,7 +1013,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 				if(!found){
 					//the file doesn't exist
-					fprintf(stderr, "the file %s doesn't exist\n", filename);
 					res = -ENOENT;
 					return res;
 				}
@@ -1036,11 +1031,9 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					return res;
 				}
 
-				fprintf(stderr, "we found the file %s\n", filename);
 				//ready to write the file
 				long start = file.nStartBlock;		//start block index for the file
 				size_t cur = BLOCK_SIZE - file.fsize;		//how many bytes we can write in current block
-				fprintf(stderr, "the cur is %d\n", cur);
 				long left = size;		//how many bytes need new blocks
 
 				if((int)size > (int)cur && (int)cur > 0){
@@ -1051,8 +1044,6 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				if(left > BLOCK_SIZE && (left % BLOCK_SIZE) > 0){
 					blocks++;
 				}
-				fprintf(stderr, "the size is %d\n", size);
-				fprintf(stderr, "we need %d\n",blocks);
 				//first, we fill the current file
 
 				struct cs1550_disk_block *free_block = get_block(disk,start);
@@ -1114,14 +1105,11 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 					//fprintf(stderr, "now we update the bitmap\n");
 					update_bitmap(disk,block_idx,'1');
-					fprintf(stderr, "the size of the data is %d\n", sizeof(free_block->data));
 					left = left - sizeof(free_block->data);
-					fprintf(stderr, "the left is %d\n", left);
 					last = block_idx;
 				}
 				file.fsize += size;
 				entry->files[index] = file;
-				fprintf(stderr, "the file size is %d\n", file.fsize);
 
 				//update the direcotry
 				write_block(disk,cur_dir.nStartBlock,entry);
