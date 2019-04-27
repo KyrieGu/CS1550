@@ -1108,7 +1108,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 						s = left;
 					}
 
-					memcpy(free_block->data,&buf[last_byte],s);		//copy the data into the struct
+					strncpy(free_block->data,&buf[last_byte],s);		//copy the data into the struct
 					fseek(disk,block_idx * BLOCK_SIZE, SEEK_SET);		//get to this block
 
 					//fprintf(stderr, "now we write the block %d\n", block_idx);
