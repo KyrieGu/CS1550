@@ -872,20 +872,38 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				size = available;
 			}
 
-			//calculate how many blocks we need to read
-			long blocks = size / BLOCK_SIZE;
-			if(size % BLOCK_SIZE > 0){
-				blocks ++;
-			}
 
 			//calculate how many blocks we need to skip
 			long start_block = file.nStartBlock;
 			start_block = start_block + offset / BLOCK_SIZE;		//which block do we start
 
-			if(offset % BLOCK_SIZE > 0){
+			/*
+			if(offset % BLOCK_SIZE > 0 && offset > BLOCK_SIZE){
 				start_block++;
-			}
+			}*/
+			long start_byte = offset % BLOCK_SIZE;			//the first block read
+			long distance = BLOCK_SIZE - start_byte;
+			//calculate how many blocks we need to read
 			size_t left = size;
+			long blocks = 0;
+			if(size > distance){
+				left = left - distance;
+				blocks = left / BLOCK_SIZE;
+				if(left % BLOCK_SIZE > 0){
+					blocks ++;
+				}
+			}
+
+			//read the first block
+			struct cs1550_disk_block *first = get_block(disk,start_block);
+			long first_try = distance;
+			if(size < distance){
+				first_try = size;
+			}
+			char temp[first_try];
+			memcpy(temp,&first->data[start_byte],first_try);
+			strcat(buf,temp);
+			start_block++;		//move to the 2nd block
 			//now we read
 			int k;
 			for(k=0; k<blocks; k++){
@@ -896,7 +914,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				char str[s];
 				start_block = start_block + k;
 				struct cs1550_disk_block *blk = get_block(disk,start_block);
-				strncpy(str,blk->data,s);
+				memcpy(str,blk->data,s);
 			  strcat(buf,str);
 				left = left - s;
 			}
@@ -1028,69 +1046,48 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 				//ready to write the file
 				long start = file.nStartBlock;		//start block index for the file
-				size_t cur = 0;
-				if(file.fsize<BLOCK_SIZE){
-					cur = BLOCK_SIZE - file.fsize;		//how many bytes we can write in current block
-				}
+				start = start + offset / BLOCK_SIZE;
+				long start_byte = offset % BLOCK_SIZE;
 
-				long left = size;		//how many bytes need new blocks
-
-				if((int)size > (int)cur && (int)cur > 0 && file.fsize != 0){
-					left = size - cur;
-				}
-				//calculate how many blocks we need
-				long blocks = left / BLOCK_SIZE;
-				if(left > BLOCK_SIZE && (left % BLOCK_SIZE) > 0){
-					blocks++;
-				}
-				//fprintf(stderr, "we need %d blocks\n", blocks);
-
-				struct cs1550_disk_block *free_block = get_block(disk,start);
-
-				//fprintf(stderr, "at fisrt, file size is %d\n", file.fsize);
-				if((int)cur <= 0){
-					fprintf(stderr, "the start block is full \n");
-				}
-				else{
-					if(left < cur){
-						cur = left;
+				//ready to write in the first block
+				long distance = BLOCK_SIZE - start_byte;
+				long left = size;
+				long blocks = 0;
+				if(size > distance){
+					left = size - distance;
+					blocks = left / BLOCK_SIZE;
+					if(left % BLOCK_SIZE > 0){
+						blocks ++;
 					}
-					//fprintf(stderr, "got the first block %d\n", start);
-					char buff[cur];
-					//fprintf(stderr, "for test\n");
-					strncpy(buff,buf,cur);
-					//fprintf(stderr, "string append\n");
-					if(file.fsize == 0){
-						strncpy(free_block -> data, buff,cur);
-					}
-					else{
-						strcat(free_block->data,buff);		//append the current file
-					}
-
-					fseek(disk,start*BLOCK_SIZE,SEEK_SET);
-					fwrite(free_block,BLOCK_SIZE,1,disk);
-					//note we don't need to update bitmap here
-					//fprintf(stderr, "we have append the file\n");
-					left = left - sizeof(buff);
-					file.fsize += sizeof(buff);
-					//fprintf(stderr, "file size increase %d\n", sizeof(buff));
 				}
 
-				long last = start + file.fsize / BLOCK_SIZE;
-				if(file.fsize % BLOCK_SIZE > 0){
-					last++;
+				//write the first block
+				struct cs1550_disk_block *first = get_block(disk,start);
+				long first_try = distance;
+				if(size < distance){
+					first_try = size;
 				}
+				char temp[first_try];
+				memcpy(temp,buf,first_try);
+				strcat(first->data,temp);
+				fseek(disk,start*BLOCK_SIZE, SEEK_SET);
+				fwrite(first,BLOCK_SIZE,1,disk);
+				file.fsize += first_try;		//update the file size
+
+				long last = start;		//record the previous block
+				long last_byte = first_try;
 				//now we write
 				int k;
+				struct cs1550_disk_block *free_block;
 				for(k = 0; k < blocks; k++){
 					//everytime we write a whole block size
 					long block_idx = get_free_block(disk);
-					/*
+
 					if(block_idx - last > 2){
 						res = -ENOSPC;
 						break;
 					}
-					*/
+
 					//check the return block
 					if(block_idx == -1){
 						//no more space
@@ -1111,7 +1108,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 						s = left;
 					}
 
-					strncpy(free_block->data,buf,s);		//copy the data into the struct
+					memcpy(free_block->data,&buf[last_byte],s);		//copy the data into the struct
 					fseek(disk,block_idx * BLOCK_SIZE, SEEK_SET);		//get to this block
 
 					//fprintf(stderr, "now we write the block %d\n", block_idx);
@@ -1122,6 +1119,7 @@ static int cs1550_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 					left = left - s;
 					last = block_idx;
 					file.fsize += s;
+					last_byte += s;
 					//fprintf(stderr, "file size increase %d\n", s);
 					//fprintf(stderr, "file size is %d\n", file.fsize);
 				}
